@@ -9,8 +9,6 @@ export OPENROUTER_API_KEY="$OPENROUTER_KEY"
 export CURSOR_API_KEY="$CURSOR_API_KEY"
 export PYTHONUNBUFFERED=1
 
-LOG=/mnt/global/buff/arbos/workspace/swe/validator/logs/validator.log
-
 exec python -u -m src.cli validate \
   --wallet-name sn66 \
   --wallet-hotkey sn66_hk \
@@ -21,4 +19,4 @@ exec python -u -m src.cli validate \
   --weight-interval-blocks 360 \
   --poll-interval-seconds 60 \
   --workspace-root /mnt/global/buff/arbos/workspace/swe/workspace \
-  >> "$LOG" 2>&1
+  2>&1
