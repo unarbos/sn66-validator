@@ -37,14 +37,17 @@ class MatchupResult:
     king_avg: float
 
 
-def _run_tau(args: list[str], config: ValidatorConfig, timeout: int = 600) -> subprocess.CompletedProcess:
+def _run_tau(args: list[str], config: ValidatorConfig, timeout: int = 600, use_docker_group: bool = False) -> subprocess.CompletedProcess:
     """Run a tau CLI command."""
+    tau_cmd = f"python -m src.cli {' '.join(args)}"
+    if use_docker_group:
+        tau_cmd = f"sg docker \"{tau_cmd}\""
     cmd = [
         "bash", "-c",
         f"source {config.venv_activate} && cd {config.tau_dir} && "
         f"OPENROUTER_API_KEY={config.openrouter_key} "
         f"CURSOR_API_KEY={config.cursor_api_key} "
-        f"python -m src.cli {' '.join(args)}"
+        f"{tau_cmd}"
     ]
     logger.info(f"Running tau: {' '.join(args)}")
     result = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout, cwd=str(config.tau_dir))
@@ -55,7 +58,10 @@ def _run_tau(args: list[str], config: ValidatorConfig, timeout: int = 600) -> su
 
 def generate_task(task_name: str, config: ValidatorConfig) -> bool:
     """Generate a task using tau generate."""
-    result = _run_tau(["generate", "--task", task_name], config, timeout=300)
+    result = _run_tau([
+        "generate", "--task", task_name,
+        "--workspace-root", str(config.workspace_dir),
+    ], config, timeout=300)
     return result.returncode == 0
 
 
@@ -67,13 +73,25 @@ def solve_task(task_name: str, solution_name: str, agent: str, config: Validator
         "--solution", solution_name,
         "--agent", agent,
         "--agent-timeout", str(config.agent_timeout),
+        "--workspace-root", str(config.workspace_dir),
     ]
-    result = _run_tau(args, config, timeout=config.agent_timeout + 120)
+    # Solving requires Docker
+    result = _run_tau(args, config, timeout=config.agent_timeout + 120, use_docker_group=True)
 
-    solution_dir = config.workspace_dir / "tasks" / task_name / "solutions" / solution_name
+    # tau nests workspace under {workspace_root}/workspace/tasks/
+    solution_dir = config.workspace_dir / "workspace" / "tasks" / task_name / "solutions" / solution_name
     diff_path = solution_dir / "solution.diff"
+    solve_json = solution_dir / "solve.json"
 
-    if result.returncode == 0 and diff_path.exists():
+    success = False
+    if solve_json.exists():
+        try:
+            data = json.loads(solve_json.read_text())
+            success = data.get("success", False)
+        except (json.JSONDecodeError, ValueError):
+            pass
+
+    if success and diff_path.exists() and diff_path.stat().st_size > 0:
         return SolveResult(
             agent_name=agent,
             task_name=task_name,
@@ -87,7 +105,7 @@ def solve_task(task_name: str, solution_name: str, agent: str, config: Validator
             task_name=task_name,
             solution_name=solution_name,
             success=False,
-            error=result.stderr[:500] if result.stderr else "Unknown error",
+            error=result.stderr[:500] if result.stderr else "No diff produced",
         )
 
 
@@ -97,6 +115,7 @@ def compare_solutions(task_name: str, solution_a: str, solution_b: str, config: 
         "compare",
         "--task", task_name,
         "--solutions", solution_a, solution_b,
+        "--workspace-root", str(config.workspace_dir),
     ]
     result = _run_tau(args, config, timeout=120)
 
@@ -104,20 +123,24 @@ def compare_solutions(task_name: str, solution_a: str, solution_b: str, config: 
         logger.error(f"Compare failed for {task_name}: {result.stderr[:200]}")
         return 0.0
 
-    # Parse output to get similarity ratio
-    # tau compare outputs JSON with similarity_ratio
+    # Read compare.json from the comparison output directory
+    comparison_name = f"{solution_a}--vs--{solution_b}"
+    compare_json = (
+        config.workspace_dir / "workspace" / "tasks" / task_name
+        / "comparisons" / comparison_name / "compare.json"
+    )
     try:
-        # Look for JSON in stdout
-        for line in result.stdout.strip().split('\n'):
-            line = line.strip()
-            if line.startswith('{'):
-                data = json.loads(line)
-                return float(data.get('similarity_ratio', 0.0))
-        # If no JSON found, try parsing the whole output
-        logger.warning(f"Could not parse compare output: {result.stdout[:200]}")
-        return 0.0
-    except (json.JSONDecodeError, ValueError) as e:
-        logger.error(f"Failed to parse compare result: {e}")
+        data = json.loads(compare_json.read_text())
+        ratio = float(data.get("result", {}).get("similarity_ratio", 0.0))
+        logger.info(f"Compare {comparison_name}: similarity_ratio={ratio:.4f}")
+        return ratio
+    except (FileNotFoundError, json.JSONDecodeError, ValueError) as e:
+        logger.error(f"Failed to read compare.json: {e}")
+        # Fallback: parse stdout for percentage
+        import re
+        m = re.search(r'(\d+\.\d+)%', result.stdout)
+        if m:
+            return float(m.group(1)) / 100.0
         return 0.0
 
 
