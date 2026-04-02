@@ -140,6 +140,20 @@ async def run_challenge(
         return False
 
 
+def discord_notify(message: str):
+    """Send a notification to Discord (fire-and-forget)."""
+    try:
+        import subprocess
+        script = Path(__file__).parent / "send_discord.py"
+        subprocess.Popen(
+            ["python3", str(script), message],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+    except Exception as e:
+        logger.warning(f"Discord notify failed: {e}")
+
+
 async def validation_loop(config: ValidatorConfig):
     """Main validation loop: process challenge queue, set weights."""
     import bittensor as bt
@@ -148,6 +162,11 @@ async def validation_loop(config: ValidatorConfig):
     state = KingState.load()
 
     logger.info(f"Starting validation loop. Current king: {state.king_repo or 'none'}")
+    discord_notify(
+        f"**SN66 Validator started**\n"
+        f"Current king: {state.king_repo or 'none'}\n"
+        f"Tested agents: {len(state.tested_hotkeys)}"
+    )
 
     while True:
         try:
@@ -165,12 +184,31 @@ async def validation_loop(config: ValidatorConfig):
             # Process one agent at a time
             contender = queue[0]
             logger.info(f"Next challenger: UID {contender.uid} - {contender.repo}@{contender.commit_sha[:8]}")
+            discord_notify(
+                f"**SN66 Challenge starting**\n"
+                f"Contender: UID {contender.uid} `{contender.repo}@{contender.commit_sha[:8]}`\n"
+                f"vs King: {state.king_repo or 'none'}"
+            )
 
             won = await run_challenge(contender, state, config)
 
             # Mark as tested (win or lose, never test again)
             state.tested_hotkeys.add(contender.hotkey)
             state.save()
+
+            if won:
+                discord_notify(
+                    f"**SN66 New King!**\n"
+                    f"`{state.king_repo}@{state.king_commit[:8] if state.king_commit else '?'}`\n"
+                    f"Score: {state.king_avg_score:.2%} similarity to Cursor\n"
+                    f"UID: {state.king_uid}"
+                )
+            else:
+                discord_notify(
+                    f"**SN66 King defended**\n"
+                    f"Contender `{contender.repo}@{contender.commit_sha[:8]}` failed to dethrone.\n"
+                    f"King: {state.king_repo or 'cursor (default)'}"
+                )
 
             # Set weights after each challenge
             if state.king_uid is not None:
@@ -185,6 +223,10 @@ def main():
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
+        handlers=[
+            logging.StreamHandler(),
+            logging.FileHandler("/mnt/global/buff/arbos/workspace/swe/validator/validator.log"),
+        ],
     )
     config = ValidatorConfig()
     asyncio.run(validation_loop(config))

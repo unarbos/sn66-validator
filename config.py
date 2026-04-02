@@ -9,8 +9,8 @@ import os
 class ValidatorConfig:
     # Bittensor
     netuid: int = 66
-    wallet_name: str = "validator"
-    hotkey_name: str = "default"
+    wallet_name: str = "sn66"
+    hotkey_name: str = "sn66_hk"
     network: str = "finney"
 
     # King-of-the-hill
