@@ -11,7 +11,7 @@ module.exports = {
     error_file: "logs/validator-error.log",
     out_file: "logs/validator-out.log",
     merge_logs: true,
-    max_memory_restart: "2G",
+    max_memory_restart: "4G",
     env: {
       OPENROUTER_KEY: process.env.OPENROUTER_KEY,
       CURSOR_API_KEY: process.env.CURSOR_API_KEY,
