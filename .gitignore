@@ -1,0 +1,4 @@
+__pycache__/
+*.pyc
+king_state.json
+.env
