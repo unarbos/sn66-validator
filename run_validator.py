@@ -32,10 +32,12 @@ config = RunConfig(
     validate_wallet_hotkey="sn66_hk",
     validate_netuid=66,
     validate_rounds=3,
-    validate_concurrency=2,
-    agent_timeout=300,
+    validate_concurrency=1,
+    agent_timeout=600,
     validate_weight_interval_blocks=360,
     validate_poll_interval_seconds=60,
+    validate_eval_window_seconds=2700,
+    http_timeout=60.0,
 )
 
 validate_loop_run(config=config)
