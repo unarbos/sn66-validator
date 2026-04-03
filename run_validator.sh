@@ -7,6 +7,7 @@ source /mnt/global/buff/arbos/workspace/swe/.venv/bin/activate
 
 export OPENROUTER_API_KEY="$OPENROUTER_KEY"
 export CURSOR_API_KEY="$CURSOR_API_KEY"
+export GITHUB_TOKEN="$ARBOS_GITHUH_TOKEN"
 export PYTHONUNBUFFERED=1
 
 exec python -u -m src.cli validate \
